@@ -147,33 +147,13 @@ L.GridLayer = L.Layer.extend({
 	_updateOpacity: function () {
 		var opacity = this.options.opacity;
 
-		// IE doesn't inherit filter opacity properly, so we're forced to set it on tiles
-		if (!L.Browser.ielt9 && !this._map._fadeAnimated) {
-			L.DomUtil.setOpacity(this._container, opacity);
-			return;
-		}
-
-		var now = +new Date(),
-			nextFrame = false;
-
-		for (var key in this._tiles) {
-			var tile = this._tiles[key];
-			if (!tile.current || !tile.loaded || tile.active) { continue; }
-
-			var fade = Math.min(1, (now - tile.loaded) / 200);
-			if (fade < 1) {
-				L.DomUtil.setOpacity(tile.el, opacity * fade);
-				nextFrame = true;
-			} else {
-				L.DomUtil.setOpacity(tile.el, opacity);
-				tile.active = true;
-				this._pruneTiles();
+		if (L.Browser.ielt9) {
+			// IE doesn't inherit filter opacity properly, so we're forced to set it on tiles
+			for (var i in this._tiles) {
+				L.DomUtil.setOpacity(this._tiles[i].el, opacity);
 			}
-		}
-
-		if (nextFrame) {
-			L.Util.cancelAnimFrame(this._fadeFrame);
-			this._fadeFrame = L.Util.requestAnimFrame(this._updateOpacity, this);
+		} else {
+			L.DomUtil.setOpacity(this._container, opacity);
 		}
 	},
 
@@ -495,6 +475,8 @@ L.GridLayer = L.Layer.extend({
 		var tile = this._tiles[key];
 		if (!tile) { return; }
 
+		delete tile.el.__leaflet_tile;
+		L.DomEvent.off(tile.el, L.DomUtil.TRANSITION_END, this._tileActive, this);
 		L.DomUtil.remove(tile.el);
 
 		delete this._tiles[key];
@@ -573,10 +555,10 @@ L.GridLayer = L.Layer.extend({
 		tile = this._tiles[key];
 		if (!tile) { return; }
 
-		tile.loaded = +new Date();
+		tile.loaded = true;
 		if (this._map._fadeAnimated) {
-			L.Util.cancelAnimFrame(this._fadeFrame);
-			this._fadeFrame = L.Util.requestAnimFrame(this._updateOpacity, this);
+			tile.el.__leaflet_tile = tile;
+			L.DomEvent.on(tile.el, L.DomUtil.TRANSITION_END, this._tileActive, this);
 		} else {
 			tile.active = true;
 			this._pruneTiles();
@@ -591,6 +573,14 @@ L.GridLayer = L.Layer.extend({
 
 		if (this._noTilesToLoad()) {
 			this.fire('load');
+		}
+	},
+
+	_tileActive: function(e) {
+		var tile = e.target.__leaflet_tile;
+		if (tile && e.propertyName.indexOf('opacity') >= 0) {
+			tile.active = true;
+			this._pruneTiles();
 		}
 	},
 
